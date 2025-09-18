@@ -94,6 +94,59 @@ def user_summary(user: User) -> dict:
         "updated_at": user.updated_at.isoformat() if getattr(user, "updated_at", None) else None,
     }
 
+@auth_bp.route("/admin/create", methods=["POST"])
+def create_admin():
+    """
+    Endpoint to create a new admin user.
+    - If no admins exist yet, anyone can create the first admin.
+    - After that, only existing admins can create new admins.
+    """
+    # Check if any admins exist
+    existing_admin = User.query.filter_by(role="admin").first()
+
+    # If admins exist, require JWT and admin role
+    if existing_admin:
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return jsonify({"error": "Authorization header required"}), 401
+        parts = auth_header.split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return jsonify({"error": "Invalid Authorization header format. Use: Bearer <token>"}), 401
+        token = parts[1]
+        payload = decode_jwt_token(token)
+        if "error" in payload:
+            return jsonify({"error": "Token expired" if payload["error"] == "token_expired" else "Invalid token"}), 401
+        user_id = payload.get("sub")
+        user = User.query.filter_by(id=user_id).first()
+        if not user or user.role != "admin":
+            return jsonify({"error": "Only admins can create new admins"}), 403
+
+    # Get input data
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or "Admin123!"
+
+    if not name or not email:
+        return jsonify({"error": "Name and email are required"}), 400
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "User with that email already exists"}), 409
+
+    # Create admin
+    new_admin = User(
+        name=name,
+        email=email,
+        role="admin",
+        department="Management",
+        status="Active"
+    )
+    new_admin.set_password(password)
+    db.session.add(new_admin)
+    db.session.commit()
+
+    return jsonify({"message": "Admin created successfully", "user": user_summary(new_admin)}), 201
+
+
 # ---------------- Routes ---------------- #
 @auth_bp.route("/login", methods=["POST"])
 def login():
@@ -165,3 +218,4 @@ def create_employee():
 def list_users():
     users = User.query.order_by(User.created_at.desc()).all()
     return jsonify([user_summary(u) for u in users]), 200
+
