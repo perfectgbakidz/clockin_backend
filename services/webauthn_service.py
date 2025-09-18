@@ -21,11 +21,16 @@ from database import db
 class WebAuthnService:
     @staticmethod
     def _get_origin():
-        return os.environ.get("WEBAUTHN_ORIGIN", "http://localhost:3000")
+        # ✅ Must exactly match your frontend URL (protocol + domain + port if any)
+        # Example for production:
+        return os.environ.get("WEBAUTHN_ORIGIN", "https://clockin-pi.vercel.app")
 
     @staticmethod
     def _get_rp_id():
-        return os.environ.get("WEBAUTHN_RP_ID", "localhost")
+        # ✅ Must match the domain part of the frontend (no scheme)
+        # For localhost testing: "localhost"
+        # For prod: "clockin-pi.vercel.app"
+        return os.environ.get("WEBAUTHN_RP_ID", "clockin-pi.vercel.app")
 
     @staticmethod
     def start_registration(user):
@@ -33,7 +38,7 @@ class WebAuthnService:
         existing_credentials = [
             PublicKeyCredentialDescriptor(
                 type="public-key",
-                id=cred.id,
+                id=cred.id,  # ✅ Make sure cred.id is stored as raw bytes (not hex/str)
                 transports=[AuthenticatorTransport.TRANSPORT_USB],
             )
             for cred in user.webauthn_credentials
@@ -42,11 +47,12 @@ class WebAuthnService:
         options = generate_registration_options(
             rp_id=WebAuthnService._get_rp_id(),
             rp_name="Pardee Foods Attendance",
-            user_id=str(user.id).encode(),
+            user_id=str(user.id).encode(),  # ✅ Correct: backend library will base64url encode
             user_name=user.email,
+            user_display_name=user.full_name or user.email,  # ✅ Add display name
             exclude_credentials=existing_credentials,
         )
-        return options_to_json(options)
+        return options_to_json(options)  # ✅ Returns valid JSON with base64url-encoded challenge
 
     @staticmethod
     def finish_registration(user, response_json, expected_challenge: str):
@@ -60,7 +66,7 @@ class WebAuthnService:
             expected_rp_id=WebAuthnService._get_rp_id(),
         )
 
-        # Store credential in DB
+        # ✅ Ensure credential ID is stored as raw bytes, not JSON string
         cred = WebAuthnCredential(
             id=verification.credential_id,
             user_id=user.id,
@@ -80,7 +86,7 @@ class WebAuthnService:
             allow_credentials=[
                 PublicKeyCredentialDescriptor(
                     type="public-key",
-                    id=cred.id,
+                    id=cred.id,  # ✅ Must be raw bytes in DB
                     transports=[AuthenticatorTransport.TRANSPORT_USB],
                 )
                 for cred in user.webauthn_credentials
