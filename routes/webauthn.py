@@ -6,8 +6,7 @@ from models import WebAuthnCredential
 
 webauthn_bp = Blueprint("webauthn", __name__)
 
-# NOTE: for production you should store the challenge server-side in a short-lived store (Redis)
-# Here we use Flask session for simplicity (not ideal for multiple backend instances).
+# Key to store challenge in session
 CHALLENGE_SESSION_KEY = "webauthn_challenge"
 
 @webauthn_bp.route("/register/begin", methods=["GET"])
@@ -15,9 +14,11 @@ CHALLENGE_SESSION_KEY = "webauthn_challenge"
 def register_begin():
     user = g.current_user
     options_json = WebAuthnService.start_registration(user)
-    # store the challenge in session (the webauthn library will include challenge in options)
-    # libraries differ; adjust if your options_json contains the raw challenge field
-    session[CHALLENGE_SESSION_KEY] = options_json.get("challenge") if isinstance(options_json, dict) else None
+
+    # Store the challenge in session for verification
+    if isinstance(options_json, dict) and "challenge" in options_json:
+        session[CHALLENGE_SESSION_KEY] = options_json["challenge"]
+
     return jsonify(options_json), 200
 
 
@@ -26,25 +27,31 @@ def register_begin():
 def register_finish():
     user = g.current_user
     body = request.get_data(as_text=True)
-    # developer: verify stored challenge here (omitted depending on webauthn lib)
+
+    # Get expected challenge from session
+    expected_challenge = session.get(CHALLENGE_SESSION_KEY)
+    if not expected_challenge:
+        return jsonify({"verified": False, "error": "Challenge not found in session"}), 400
+
     try:
-        cred = WebAuthnService.finish_registration(user, body)
+        cred = WebAuthnService.finish_registration(user, body, expected_challenge)
     except Exception as exc:
         current_app.logger.exception("webauthn register failed")
         return jsonify({"verified": False, "error": str(exc)}), 400
-    return jsonify({"verified": True, "message": "Device registered successfully", "credential_id": cred.id.hex()}), 200
+
+    # Clear challenge after use
+    session.pop(CHALLENGE_SESSION_KEY, None)
+
+    return jsonify({
+        "verified": True,
+        "message": "Device registered successfully",
+        "credential_id": cred.id.hex()
+    }), 200
 
 
 @webauthn_bp.route("/login/begin", methods=["GET"])
 def login_begin():
-    """
-    This endpoint is called by the popup before navigator.credentials.get()
-    Query param: userId (optional) — if omitted, the currently signed-in user is expected.
-    """
     user_id = request.args.get("userId")
-    # If userId provided, you might look up the user and create options for them.
-    # For simplicity we expect client to call this from authenticated context (or pass userId)
-    # Here we return an error if userId not provided.
     if not user_id:
         return jsonify({"error": "userId query param required"}), 400
 
@@ -54,17 +61,15 @@ def login_begin():
         return jsonify({"error": "User not found"}), 404
 
     options_json = WebAuthnService.start_authentication(user)
-    session[CHALLENGE_SESSION_KEY] = options_json.get("challenge") if isinstance(options_json, dict) else None
+
+    if isinstance(options_json, dict) and "challenge" in options_json:
+        session[CHALLENGE_SESSION_KEY] = options_json["challenge"]
+
     return jsonify(options_json), 200
 
 
 @webauthn_bp.route("/login/finish", methods=["POST"])
 def login_finish():
-    """
-    The final verification endpoint: client sends the assertion here.
-    Expect body to be the raw JSON from navigator.credentials.get() result.
-    Query param: userId is required to find the credential.
-    """
     user_id = request.args.get("userId")
     if not user_id:
         return jsonify({"error": "userId query param required"}), 400
@@ -75,12 +80,18 @@ def login_finish():
         return jsonify({"error": "User not found"}), 404
 
     body = request.get_data(as_text=True)
+
+    expected_challenge = session.get(CHALLENGE_SESSION_KEY)
+    if not expected_challenge:
+        return jsonify({"verified": False, "error": "Challenge not found in session"}), 400
+
     try:
-        verification = WebAuthnService.finish_authentication(user, body)
+        verification = WebAuthnService.finish_authentication(user, body, expected_challenge)
     except Exception as exc:
         current_app.logger.exception("webauthn auth failed")
         return jsonify({"verified": False, "error": str(exc)}), 400
 
+    session.pop(CHALLENGE_SESSION_KEY, None)
     return jsonify({"verified": True, "message": "Verification successful"}), 200
 
 
