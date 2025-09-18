@@ -13,7 +13,7 @@ def create_app(test_config: dict = None):
     # Apply CORS globally
     CORS(
         app,
-        origins=["*"],  # Allow all origins; change to your frontend URL in production
+        origins=["https://clockin-pi.vercel.app"],  # Allow all origins; change to your frontend URL in production
         supports_credentials=True,
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     )
@@ -61,3 +61,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(host="0.0.0.0", port=port, debug=debug)
+
