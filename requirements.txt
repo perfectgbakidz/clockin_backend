@@ -1,6 +1,8 @@
+gunicorn
 Flask
 flask-sqlalchemy
 flask-cors
 flask-bcrypt
 pyjwt
 webauthn
+
