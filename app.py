@@ -7,16 +7,13 @@ from flask_cors import CORS
 from database import init_db, db
 import models  # noqa: F401
 
-app = Flask(__name__)
-
-
 def create_app(test_config: dict = None):
     app = Flask(__name__, instance_relative_config=False)
-    # Apply CORS to the entire app
-    # Allows requests from localhost:5173 with credentials (cookies/auth headers)
+
+    # Apply CORS globally
     CORS(
         app,
-        origins=["http://localhost:5173"],
+        origins=["*"],  # Allow all origins; change to your frontend URL in production
         supports_credentials=True,
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     )
@@ -50,8 +47,6 @@ def create_app(test_config: dict = None):
     app.register_blueprint(webauthn_bp, url_prefix="/api/webauthn")
     app.register_blueprint(employees_bp, url_prefix="/api")
 
-
-
     # Health check route
     @app.route("/api/health", methods=["GET"])
     def health():
@@ -59,11 +54,10 @@ def create_app(test_config: dict = None):
 
     return app
 
+# Only create the app once
+app = create_app()
+
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(host="0.0.0.0", port=port, debug=debug)
-
-
-
