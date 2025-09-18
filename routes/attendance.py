@@ -6,8 +6,15 @@ from models import AttendanceRecord, User
 
 attendance_bp = Blueprint("attendance", __name__)
 
+# ---------------- CORS preflight helper ----------------
+@attendance_bp.before_request
+def handle_options():
+    if request.method == "OPTIONS":
+        # Respond 200 for preflight
+        return '', 200
 
-@attendance_bp.route("/clock-in", methods=["POST"])
+# ---------------- Clock-in ----------------
+@attendance_bp.route("/clock-in", methods=["POST", "OPTIONS"])
 def clock_in():
     data = request.get_json()
     user_id = data.get("user_id")
@@ -31,8 +38,8 @@ def clock_in():
 
     return jsonify({"message": "Clock-in successful", "record_id": str(record.id)}), 201
 
-
-@attendance_bp.route("/clock-out", methods=["POST"])
+# ---------------- Clock-out ----------------
+@attendance_bp.route("/clock-out", methods=["POST", "OPTIONS"])
 def clock_out():
     data = request.get_json()
     user_id = data.get("user_id")
@@ -54,3 +61,25 @@ def clock_out():
 
     db.session.commit()
     return jsonify({"message": "Clock-out successful", "total_hours": str(record.total_hours)})
+
+# ---------------- Attendance history (example GET) ----------------
+@attendance_bp.route("/history", methods=["GET", "OPTIONS"])
+def attendance_history():
+    if request.method == "OPTIONS":
+        return '', 200  # Preflight response
+
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+
+    records = AttendanceRecord.query.filter_by(user_id=user_id).order_by(AttendanceRecord.date.desc()).all()
+    data = [
+        {
+            "date": r.date.isoformat(),
+            "clock_in": r.clock_in.isoformat(),
+            "clock_out": r.clock_out.isoformat() if r.clock_out else None,
+            "total_hours": str(r.total_hours) if r.total_hours else None
+        }
+        for r in records
+    ]
+    return jsonify(data), 200
